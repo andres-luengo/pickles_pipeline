@@ -32,7 +32,7 @@ import threading
 
 # from cappuccino.cappuccino.__init__ import *
 
-def main(batch_number, section_bool):
+def main(batch_number, section_bool,rerun):
     """This is the main function.
 
     Args:
@@ -41,17 +41,34 @@ def main(batch_number, section_bool):
 
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
 
-
+    # define the size of the frequency window that the observation file is split into
     block_size = 1024
+
+    # define the significance level of signals we want to be sensitive to
     significance_level = 10
-    main_dir = '/mnt_blpc1/datax/scratch/calebp/k_scores/'
+
+    # define a directory to save file outputs to
+    main_dir = '/datax/scratch/calebp/k_scores/'
 
     
+    # pickles handles a few different ways of inputing targets 
+
+    # most useful ones 
+    ## --> A batch number (of the ~120 batches that the large dataset of archival observations was split into. this is useful if you're trying to run it on everything, can just go batch number one after the other)
+    ## --> A specific file. Good for checking specific observations. Pass it in as `python pickles.py [Target, MJD, node]` --> Ex: [HIP62207,57543,spliced]  --> (in this case the node is just the string 'spliced', that's how the code recognizes spliced files of multiple nodes. Otherwise just the node number will do in replacement of 'spliced'.)
+
     if batch_number.isdigit():
         batch_number = int(batch_number)
-        # we will store the information for pickle in pickle_jar.csv
-        df_name = f'updated_all_cadences_mason_jar_batch_{batch_number}_block_size_{block_size}_snr_{significance_level}_section_{section_bool}.csv'
+        # we will store the information of returned signals and properties in a csv file
 
+        ## I had to rerun a few batches that had errors, hence this
+        if rerun == "True":
+            df_name = f'updated_all_cadences_mason_jar_batch_{batch_number}_block_size_{block_size}_snr_{significance_level}_section_{section_bool}_rerun_{rerun}.csv'
+
+        else:
+            df_name = f'updated_all_cadences_mason_jar_batch_{batch_number}_block_size_{block_size}_snr_{significance_level}_section_{section_bool}.csv'
+
+        # make sure this place to store files is OK
         db_exists = os.path.exists(main_dir+df_name)
         if db_exists == False:
             print(main_dir+df_name)
@@ -62,9 +79,11 @@ def main(batch_number, section_bool):
             print("feature table database already exists:",main_dir+df_name)
 
 
+    ## if instead we are passing in a specific target
     else:
         target_line = batch_number
         n = len(target_line)
+        print('target',target_line)
         target_info = target_line[1:n-1]
         target_info = target_info.split(',')
         target_name = target_info[0]
@@ -84,20 +103,8 @@ def main(batch_number, section_bool):
             print("feature table database already exists:",main_dir+df_name)
 
     
-
-
-    # db_exists = os.path.exists(main_dir+df_name)
-    # if db_exists == False:
-    #     print(main_dir+df_name)
-    #     print("Creating candidates database as ",df_name)
-    #     feature_table = pd.DataFrame(columns=["All Files","Index","Block Size","Freq","obs1 maxes","obs3 maxes","obs5 maxes","ON_freq_int","k1","k2","k3","k4","k5","k6","k_score","min_k","med_k","max_k","drift1","drift2"])
-    #     feature_table.to_csv(main_dir+df_name,index=False)
-    # else:
-    #     print("feature table database already exists:",main_dir+df_name)
-
-    
     # load all cadences
-    with open('/mnt_blpc1/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences_1000.pkl', 'rb') as f:
+    with open('/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences_1000.pkl', 'rb') as f:
         reloaded_batches = pickle.load(f)
 
     
@@ -105,26 +112,73 @@ def main(batch_number, section_bool):
         
         print(len(reloaded_batches))
         specific_batch = reloaded_batches[batch_number]
-        feature_table = pd.read_csv(main_dir+df_name)
-    
+        feature_table = pd.read_csv(main_dir+df_name,dtype={"drift2": 'boolean',"blip or broadband": 'boolean'})
+
+        ## how many observations are in this batch that will be processed (usually ~1000)
+        batch_observations_to_run_on = range(0,len(specific_batch))
+
+        ## if pickles is running on a batch/target it already ran on, we load up the latest version of that batch/target's csv file to see what observations were already processed and what ones still need to get analyzed
+        if rerun == "True":
+            old_df_name = f'updated_all_cadences_mason_jar_batch_{batch_number}_block_size_{block_size}_snr_{significance_level}_section_{section_bool}.csv'
+
+            old_feature_table = pd.read_csv(main_dir+old_df_name,dtype={"drift2": 'boolean',"blip or broadband": 'boolean'})
+
+            unique_batch_numbers_already_run = set(list(old_feature_table["Batch Info"]))
+            
+            obs_run = np.sort([eval(x)[1] for x in unique_batch_numbers_already_run])
+
+            # this is code because earlier I had run some batches that missed observations within the batch 
+            print("Batches already run:", obs_run)
+            missing_obs = find_missing_obs(obs_run)
+            print("Following observations are missing and will be re-ran:", missing_obs)
+            batch_observations_to_run_on = missing_obs
+            
+            ## I also ended up adding some more features to the feature table 
+            last_mason = pd.read_csv(main_dir+df_name,dtype={"drift2": 'boolean',"blip or broadband": 'boolean'})
+
+            # grab all observations but last one in case that one hadn't finished fully
+            try:
+                batches_already_in_rerun_table = [eval(x)[1] for x in list(last_mason['Batch Info'])][:-1]
+            except:
+                print("first run with this csv")
+                batches_already_in_rerun_table = []
+            print('batches alread in rerun csv:', set(batches_already_in_rerun_table))
+
+            ## define a list of the observationst that still need to be analyzed
+            main_list = list(set(batch_observations_to_run_on) - set(batches_already_in_rerun_table))
+            
+            batch_observations_to_run_on = main_list
+            
+            print("Final Observations to run", batch_observations_to_run_on)
+        
+
+        ## now we actually go through each observation in that list and process it
+        ## inside a try/except loop in case there is some error
         try:
             # iterate through each node (cadence)
-            for i in range(0,len(specific_batch)):
+            for i in batch_observations_to_run_on:
                 print(f"Now on file {i} out of {len(specific_batch)}")
                 # load current csv of file properties
                 try:
-                    last_mason = pd.read_csv(main_dir+df_name)
-                    # grab the specific cadence to look at
-                    h5_files = specific_batch[i]
-                    # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
-                    print("Now running on file ",h5_files[0])
-                    k_score_table= pickler_wrapper((batch_number,i),h5_files,block_size,significance_level, section_bool)
-    
-                    # append all flagged frequencies to the candidates database
-                    updated_mason = pd.concat([last_mason, k_score_table])
-                    updated_mason.to_csv(main_dir+df_name,index=False)
-    
-                    print(updated_mason)
+                    last_mason = pd.read_csv(main_dir+df_name,dtype={"drift2": 'boolean',"blip or broadband": 'boolean'})
+
+                    # only run if we haven't already looked at it
+                    if i not in batches_already_in_rerun_table:
+                        # grab the specific cadence to look at
+                        h5_files = specific_batch[i]
+                        # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
+                        print("Now running on file ",h5_files[0])
+
+                        ## this is the function that does most of the actual analysis, loading of data, and grabbing of specific properties. 
+                        k_score_table= pickler_wrapper((batch_number,i),h5_files,block_size,significance_level, section_bool)
+        
+                        # append all flagged frequencies to the candidates database
+                        updated_mason = pd.concat([last_mason, k_score_table])
+                        updated_mason.to_csv(main_dir+df_name,index=False)
+        
+                        print(updated_mason)
+                    else:
+                        print('Skipping, already Ran this batch in this csv')
                 except Exception:
                     print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
                     print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON CADENCE {i} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
@@ -138,9 +192,11 @@ def main(batch_number, section_bool):
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print(traceback.print_exc())
 
+    # if we are instead running on a specific observation file instead of a batch (collection of files)
     else:
         print("TARGET:",target_name,target_date,target_node)
         all_file_paths = [find_cadence(target_name,target_date,target_node,reloaded_batches)]
+        print("Files", all_file_paths)
         try:
             last_mason = pd.read_csv(main_dir+df_name)
             # grab the specific cadence to look at
@@ -162,12 +218,18 @@ def main(batch_number, section_bool):
 
 
 def find_cadence(target,time,node,reloaded_batches):
-    for batch in range(0,21):
+    for batch in range(0,101):
         for cadence in reloaded_batches[batch]:
             combined_string = " ".join(cadence)
             if combined_string.count(target) >= 3 and time in combined_string and node in combined_string:
                 return cadence
-                
+
+def find_missing_obs(obs_run):
+    all_numbers = set(range(1, 1000))
+    missing_numbers = all_numbers - set(obs_run)
+    return sorted(missing_numbers)
+
+    
 def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bool):
 
     # load data files, for ON and OFF observations
@@ -181,7 +243,11 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
 
 
     # grab specific rows which will be used to find hotspots
-    # here we take the middle row of each ON observation
+    # here we take the middle row of each ON observation 
+
+    ## I did this to locate the areas of the observation file to focus on --> I was checking to see what frequency
+    # snippets showed some sign of signal somewhere inside them, so the first step was just to load the middle time rows of each ON scan of the entire observation
+    ## and see where there were signs of a signal
     obs1_row_8 = np.squeeze(hf_ON['data'][7:8,:,:])
     obs3_row_8 = np.squeeze(hf_ON2['data'][7:8,:,:])
     obs5_row_8 = np.squeeze(hf_ON3['data'][7:8,:,:])
@@ -192,10 +258,11 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
     # find file frequency information
     fch1,foff,nchans = get_file_properties(hf_ON)
 
-    # calculate number of iterations needed and find hotspots
+    # calculate number of iterations needed (how many frequency windows the observation will get divided up into) and find hotspots 
     number = int(np.round(len(obs1_row_8)/block_size))
 
-    # record interesting freq chunks as 'warmspots'. This is the initial pass.
+    # record interesting freq chunks as 'warmspots'. This is the initial pass. 
+    # This is a lower sigma requirement before doing a median absolute deviation test of signal strength, which just takes a bit longer to compute so I wanted to reduce the number of frequency snippets to run on first. 
     hotspot_slices = [obs1_row_8,obs3_row_8, obs5_row_8]
 
     number = int(np.round(len(obs1_row_8)/block_size))
@@ -209,8 +276,9 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
 
    # keep only the unique blocks
     warmspots = [*set(all_warmspots)]
+    print('warmspots',len(warmspots))
 
-    # next filter out warmspots that fall in bad regions
+    # next filter out warmspots that fall in bad regions (High RFI)
     print("Throwing out rotten ones...")
     filtered_indexes = filter_hotspots(warmspots,fch1,foff,block_size)
     filtered_warmspots = np.delete(warmspots, filtered_indexes)
@@ -220,18 +288,21 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
     for i in range(0,len(hotspot_slices)):
         hotspots = find_hotspots(hotspot_slices[i],filtered_warmspots,block_size,significance_level)
         all_hotspots=all_hotspots+hotspots
+        
+    
 
     filtered_hotspots = [*set(all_hotspots)]
-    print(filtered_hotspots)
+    # print(filtered_hotspots)
     print(len(filtered_hotspots))
 
-    # now we can grab the hotspots exactly half a block size ahead and behind of the flagged index 
+    # now we can grab the hotspots exactly half a block size ahead and behind of the flagged index --> basically we are doing overlapping frequency windows to make sure we catch the signal, similar to Peter Ma's deep learning paper
     # --> to capture potential high drift signals that might not show up in all 3 ON observations
     extra_hostpots_plus = [i+.5 for i in filtered_hotspots[1:-1]]
     extra_hostpots_minus = [i-.5 for i in filtered_hotspots[1:-1]]
     extra_hotspots = extra_hostpots_plus+extra_hostpots_minus
 
-    # only include extra hotspots if there are at least 2 strong signals in each ON
+    # only include extra hotspots if there are at least 2 strong signals in each ON scan (we don't care super much about little blips that fade out)
+    ## but our frequency window size (1024) should ensure that if the windows are overlapping, signals drifting up to +/- 4 Hz/s will definitely show up in at least 2 of the ON scans
     interesting_extra_hotspots = []
     for spot in extra_hotspots:
         strong_signals_extra = 0 
@@ -268,7 +339,7 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
     final_filtered_hotspots = list(np.sort(final_filtered_hotspots))
     print("Final # of cucumbers:",len(final_filtered_hotspots))
 
-    # this variable is more of a placeholder now, since all of the regions have a signal in each ON observation.
+    # this variable is more of a placeholder now, since all of the regions have a signal in at least 2 ON observations. (it used to be used for something in a previous iteration of the code)
     for spot in final_filtered_hotspots:
         for i in range(0,len(hotspot_slices)):    
             row = hotspot_slices[i]
@@ -283,13 +354,20 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
     del obs3_row_8
     del obs1_row_8
 
-    dt1 = datetime.datetime.now()
+    dt1 = datetime.datetime.now() ## keeping track of how long things are taking
 
-    sectioning = section_bool
+    sectioning = section_bool ## this is an important thing in terms of how long it takes to process an observation
+                              ## it can take a lot of memory to load up an entire observation, but it takes a long time to go back and forth loading small pieces of it (input/output time is killer)
+                              ## a good compromise is to load up large section of an observation, and then you don't need to individually load up the small frequency snippets, you can just grab them from the already loaded array
+                              ## here I'm dividing up an observation into 8 pieces. This might be too big if the observation is spliced nodes instead of an individual one. 
+                              ## but if there are a lot of frequency snippets, it's a lot more time efficient than individually loading them. 
+
+
     if sectioning == "True":
         num_sections = 8
         print(f"attempting to divide observation into {num_sections} sections")
-    
+        
+        ## define the sections that the observationg ets split into
         sections = np.linspace(fch1,fch1+foff*nchans,num_sections)
         section_blocks = np.round(abs((sections-fch1)/(block_size*foff)))
         
@@ -299,6 +377,8 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
         print('section_blocks',section_blocks)
 
         rounds_run = 0
+
+        ## define a table to store the information of the frequency windows inside that observations ection
         k_score_table_data_full = []
         for num in range(0,len(section_blocks)-1):
             print(f"Now Running on Section {num} of {len(section_blocks)}")
@@ -306,8 +386,6 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
             section = section_blocks[num+1]
             round = np.array([x for x in indexes if x <= section])
             rounds_run += len(round)
-            # print("Indexes targeted this round", round)
-            # print('Freqs',(round*block_size*foff)+fch1)
             
             indexes = set(indexes) - set(round)
             round = round - section_blocks[num]
@@ -316,25 +394,32 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
             lower = int(np.round(section_blocks[num]*block_size))
             upper = int(np.round(section_blocks[num+1]*block_size))
         
-        
+            ## make sure there are at least some frequency windows to run on inside that observation section
             if len(round) > 0:
                 for obs_data in tqdm(observations):
                     section =  np.squeeze(obs_data['data'][:,:,lower:upper],axis=1)
                     sectioned_observations.append(section)
                     
                 round = list(round)
+
+                # actually go get the properties of those frequency snippets
                 k_score_table_data = get_k_scores(batch_info,sectioned_observations[0],sectioned_observations[1],sectioned_observations[2],sectioned_observations[3],sectioned_observations[4],sectioned_observations[5],round,h5_files,fch1,foff,filtered_hotspots_slice_indexes,block_size,sectioning,section_blocks[num])
 
+                # and record those properties
                 k_score_table_data_full.append(k_score_table_data)
 
         print(len(k_score_table_data_full))
-        print(len(k_score_table_data_full[0]))
+
+        if len(k_score_table_data_full) > 0:
+            print(len(k_score_table_data_full[0]))
+            k_score_table_data_full = list(itertools.chain.from_iterable(k_score_table_data_full))
+            k_score_table = pd.DataFrame(k_score_table_data_full, columns=["Batch Info","All Files","Index","Block Size","Freq","obs1 maxes","obs3 maxes","obs5 maxes","ON_freq_int","k1","k2","k3","k4","k5","k6","k_score","min_k","med_k","max_k","drift1","drift2","blip or broadband"])
+        else:
+            print("Empty Observation")
+            k_score_table = pd.DataFrame([[batch_info,h5_files,0,block_size,0,[],[],[],[],np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan]], columns=["Batch Info","All Files","Index","Block Size","Freq","obs1 maxes","obs3 maxes","obs5 maxes","ON_freq_int","k1","k2","k3","k4","k5","k6","k_score","min_k","med_k","max_k","drift1","drift2","blip or broadband"])
 
         
-        k_score_table_data_full = list(itertools.chain.from_iterable(k_score_table_data_full))
-        k_score_table = pd.DataFrame(k_score_table_data_full, columns=["Batch Info","All Files","Index","Block Size","Freq","obs1 maxes","obs3 maxes","obs5 maxes","ON_freq_int","k1","k2","k3","k4","k5","k6","k_score","min_k","med_k","max_k","drift1","drift2","blip or broadband"])
 
-                
 
     elif sectioning == "False":
         print("Salting and Seasoning...")
@@ -376,7 +461,8 @@ def multi_threaded_file_reader(observations):
 
 
 def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,file_list,fch1,foff,filtered_hotspots_indexes,block_size,sectioning,section_index):
-    
+
+    # define table of properties of interest
     k_score_table = pd.DataFrame(columns=["Batch Info","All Files","Index","Block Size","Freq","obs1 maxes","obs3 maxes","obs5 maxes","ON_freq_int","k1","k2","k3","k4","k5","k6","k_score","min_k","med_k","max_k","drift1","drift2","blip or broadband"])
     # we iterate through all of the hotspots
     k_score_table_data = []
@@ -394,6 +480,8 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
             observations_ON = [hf_obs1,hf_obs3,hf_obs5]
             primary_hf_ON = observations_ON[hotspot_slice]
 
+
+            # laod the snippet/window of interest, either by actually retrieving it from the observation file (if sectioning = False) or just from the already loaded numpy array (if sectioning = True) 
             if sectioning == "False":
     
                 
@@ -402,7 +490,7 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
     
                        
                 # load data of each hotspot
-                # integrate each one for more statistics
+                # integrate each one for more later statistics
                 Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
                 obs1_int = Obs1.sum(axis=0)
     
@@ -424,7 +512,6 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
                 frequency = fch1+foff*(i*block_size)
 
                 dt1 = datetime.datetime.now()
-                print('time start',dt1)
 
             elif sectioning == "True":
                 Obs1 = hf_obs1[:,lower:upper]
@@ -446,8 +533,8 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
                 frequency = fch1+foff*(i*block_size + section_index*block_size)
 
 
-                
-            
+            ## now we go about grabbing some properties from that frequency window/snippet
+
             # sum the time-integrated data for certain statistics --> like looking for peaks of non-drifting signals
             on_sum = obs1_int+obs3_int+obs5_int
             off_sum = obs2_int+obs4_int+obs6_int
@@ -501,7 +588,7 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
             observations = [Obs1/np.max(Obs1),Obs3/np.max(Obs3),Obs5/np.max(Obs5)]
             # also calculate max value at each time integration point
             dt1 = datetime.datetime.now()
-            print('time start',dt1.microsecond/1000)
+            # print('time start',dt1.microsecond/1000)
 
             obs_time_maxes = []
             for number in [0,1,2]:
@@ -541,7 +628,7 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
 
             
             dt1 = datetime.datetime.now()
-            print('time start',dt1.microsecond/1000)
+            # print('time start',dt1.microsecond/1000)
 
             if sectioning == "False":
                 k_score_table.loc[len(k_score_table.index)] = [batch_info,file_list,i,block_size,frequency,obs_time_maxes[0],obs_time_maxes[1],obs_time_maxes[2],[obs1_freq_int,obs3_freq_int,obs5_freq_int],k1,k2,k3,k4,k5,k6,k_score,min_k,med_k,max_k,drift,drifting,blip_or_broadband]
@@ -560,6 +647,10 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
             k_score_table.loc[len(k_score_table.index)] = [batch_info,file_list,i,block_size,fch1+foff*(i*block_size),math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan]
 
     if sectioning == "False":
+        if len(filtered_hotspots) == 0:
+            print('empty observation')
+            k_score_table.loc[len(k_score_table.index)] = [batch_info,h5_files,0,block_size,0,[],[],[],[],np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan]
+
         return k_score_table
     elif sectioning == "True":
         return k_score_table_data
@@ -691,7 +782,8 @@ def filter_hotspots(hotspots,fch1,foff,block_size):
     # first convert hotspots indexes to frequency channels
     hotspots_frequencies = np.array([int((fch1+foff*(i*block_size))) for i in hotspots])
 
-
+    hotspots_frequencies = np.sort(hotspots_frequencies)
+    print(hotspots_frequencies)
     all_indexes = []
     # iterate through bad regions and remove all hotspots in them
     for i in bad_regions:
@@ -945,6 +1037,15 @@ def get_node_file_list(data_dir,node_number):
     return data_list
 
 if __name__ == '__main__':
-    batch_number = sys.argv[1]
-    section_bool = sys.argv[2]
-    main(batch_number, section_bool)
+    batch_number = sys.argv[1] ## batch number or a specific target (see top)
+    section_bool = sys.argv[2] ## whether or not we are loading individual frequency blocks 1 by 1, or large sections of the observation.
+    rerun = sys.argv[3] ## whether we have already run on this batch/target
+    main(batch_number, section_bool,rerun)
+
+
+    '''
+    Maybe useful vocabulary for understanding this code?
+    
+    frequency window/snippet --> the small frequency block (in this case 1024 frequency bins or ~ 3 kHz)
+    observation section --> a large slice of the observation file (in this case 1/8th of it) that is loaded ahead of time for faster input/output times
+    '''
