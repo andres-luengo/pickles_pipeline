@@ -938,6 +938,13 @@ def get_first_round_snr(sliced,first_round_multiplier):
         snr (boolean): True if there is a high SNR signal, False if not
         threshold (int): Threshold that normalized data needs to be above in order to count as signal. 
     """
+    ## returns True if the max of a snippet is 5 sigma above the median
+    ## essentially the same as
+    """
+    threshold = np.median(sliced) + first_round_multiplier * np.std(sliced)
+    max_power = np.max(sliced)
+    return max_power >= threshold, threshold / max_power
+    """
 
     snr = False
     sliced = sliced/np.max(sliced)
