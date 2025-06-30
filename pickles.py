@@ -271,6 +271,7 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
 
     print("Cutting cucumbers...")
     for i in range(0,len(hotspot_slices)):
+        # i.e. where there exist big outliers (max >= median + 5std)
         warmspots = find_warmspots(hotspot_slices[i],number,block_size)
         all_warmspots = all_warmspots+warmspots
 
@@ -780,6 +781,7 @@ def filter_hotspots(hotspots,fch1,foff,block_size):
     # define regions that are RFI heavy:
     bad_regions = [[700,1100],[1160,1340],[1370,1390],[1520,1630],[1670,1705],[1915,2000],[2025,2035],[2100,2120],[2180,2280],[2300,2360],[2485,2500],[2800,4400],[4680,4800],[8150,8350],[9550,9650],[10700,12000]]
     # first convert hotspots indexes to frequency channels
+    # same as np.linspace(fch1, fch1 + foff * len(hotspots) * block_size, dtype = int)
     hotspots_frequencies = np.array([int((fch1+foff*(i*block_size))) for i in hotspots])
 
     hotspots_frequencies = np.sort(hotspots_frequencies)
@@ -789,6 +791,7 @@ def filter_hotspots(hotspots,fch1,foff,block_size):
     for i in bad_regions:
         bottom = int(i[0])
         top = int(i[1])
+        # same as indexes = np.nonzero((bottom < hotspot_frequencies) & (hotspot_frequencies < top))
         indexes = np.where(np.logical_and(bottom<hotspots_frequencies, hotspots_frequencies<top))
         indexes = indexes[0]
         indexes = [int(i) for i in indexes]
@@ -903,7 +906,12 @@ def get_snr(sliced,sigma_multiplier):
         snr (boolean): True if there is a high SNR signal, False if not
         threshold (int): Threshold that normalized data needs to be above in order to count as signal. 
     """
-
+    # this is just like get_first_round_snr but with MAD instead of std
+    # so essentially the same as 
+    """
+    threshold = "sigma"_multiplier * MAD + median
+    return max >= threshold, threshold / max    
+    """
     snr = False
     # divide by max to make numbers smaller
     sliced = sliced/np.max(sliced)
@@ -913,6 +921,7 @@ def get_snr(sliced,sigma_multiplier):
     # lower_slice = sliced[sliced < lower_quantile]
 
     # # get median and standard deviation of baseline
+    # i think that's old code, this gets the MAD
     median = np.median(sliced)
     # sigma = np.std(lower_slice)
 
