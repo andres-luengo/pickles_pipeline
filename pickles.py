@@ -48,7 +48,7 @@ def main(batch_number, section_bool,rerun):
     significance_level = 10
 
     # define a directory to save file outputs to
-    main_dir = '/datax/scratch/calebp/k_scores/'
+    main_dir = '/datax/scratch/andresl/k_scores/'
 
     
     # pickles handles a few different ways of inputing targets 
@@ -118,6 +118,7 @@ def main(batch_number, section_bool,rerun):
         batch_observations_to_run_on = range(0,len(specific_batch))
 
         ## if pickles is running on a batch/target it already ran on, we load up the latest version of that batch/target's csv file to see what observations were already processed and what ones still need to get analyzed
+        batches_already_in_rerun_table = []
         if rerun == "True":
             old_df_name = f'updated_all_cadences_mason_jar_batch_{batch_number}_block_size_{block_size}_snr_{significance_level}_section_{section_bool}.csv'
 
