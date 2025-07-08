@@ -1,11 +1,9 @@
-import pickles
 
 from multiprocessing import Pool
 
 import pathlib
 import shutil
 
-import resource
 
 import contextlib
 
@@ -14,8 +12,8 @@ if LOGS_PATH.is_dir():
     shutil.rmtree(LOGS_PATH)
 LOGS_PATH.mkdir()
 
-NUM_PROCESSES = 16 
-MAX_RSS = int(80 * 10**9) # so 80 GB
+NUM_PROCESSES = 1
+MAX_RSS = int(10 * 10**9) # so 80 GB
 
 NUM_BATCHES = 100 # this seems like the kind of temporary hack that is never really temporary...
 
