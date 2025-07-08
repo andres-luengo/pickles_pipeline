@@ -48,7 +48,7 @@ def main(batch_number, section_bool,rerun):
     significance_level = 10
 
     # define a directory to save file outputs to
-    main_dir = '/datax/scratch/andresl/k_scores/'
+    main_dir = '/datax/scratch/andresl/xband/'
 
     
     # pickles handles a few different ways of inputing targets 
@@ -104,7 +104,7 @@ def main(batch_number, section_bool,rerun):
 
     
     # load all cadences
-    with open('/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences_1000.pkl', 'rb') as f:
+    with open('/datax/scratch/andresl/xband-batches.pkl', 'rb') as f:
         reloaded_batches = pickle.load(f)
 
     
@@ -398,7 +398,7 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
         
             ## make sure there are at least some frequency windows to run on inside that observation section
             if len(round) > 0:
-                for obs_data in tqdm(observations):
+                for obs_data in observations:
                     section =  np.squeeze(obs_data['data'][:,:,lower:upper],axis=1)
                     sectioned_observations.append(section)
                     
@@ -470,7 +470,7 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
     k_score_table_data = []
 
 
-    for i in tqdm(filtered_hotspots):
+    for i in filtered_hotspots:
 
         # define the block region we are looking at
         try:
@@ -745,7 +745,7 @@ def get_file_properties(f):
 def find_hotspots(row,first_round,block_size,significance_level):
     
     hotspots = []
-    for i in tqdm(first_round):
+    for i in first_round:
         slice_ON = row[i*block_size:(i+1)*block_size:]
         snr,threshold = get_snr(slice_ON,significance_level)
         if snr:
@@ -759,7 +759,7 @@ def find_warmspots(row,number,block_size):
     # iterate
 
     
-    for i in tqdm(range(0,number)):
+    for i in range(0,number):
         slice_ON = row[i*block_size:(i+1)*block_size:]
         snr,threshold = get_first_round_snr(slice_ON,first_round_multiplier)
         if snr:
