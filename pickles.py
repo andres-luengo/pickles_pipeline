@@ -433,30 +433,30 @@ def pickler_wrapper(batch_info,h5_files,block_size,significance_level,section_bo
     return k_score_table
 
 
-def read_file(obs_data):
-    return np.squeeze(obs_data['data'][:,:,lower:upper],axis=1)
+# def read_file(obs_data):
+#     return np.squeeze(obs_data['data'][:,:,lower:upper],axis=1)
 
     
-def multi_threaded_file_reader(observations):
-    threads = []
-    results = []
+# def multi_threaded_file_reader(observations):
+#     threads = []
+#     results = []
 
-    # Define the worker function
-    def read_file_thread(file_path):
-        result = read_file(file_path)
-        results.append(result)
+#     # Define the worker function
+#     def read_file_thread(file_path):
+#         result = read_file(file_path)
+#         results.append(result)
 
-    # Create and start threads
-    for obs_data in observations:
-        thread = threading.Thread(target=read_file_thread, args=(obs_data,))
-        threads.append(thread)
-        thread.start()
+#     # Create and start threads
+#     for obs_data in observations:
+#         thread = threading.Thread(target=read_file_thread, args=(obs_data,))
+#         threads.append(thread)
+#         thread.start()
 
-    # Wait for all threads to finish
-    for thread in threads:
-        thread.join()
+#     # Wait for all threads to finish
+#     for thread in threads:
+#         thread.join()
 
-    return results
+#     return results
     
     
     
@@ -649,6 +649,10 @@ def get_k_scores(batch_info,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filt
             k_score_table.loc[len(k_score_table.index)] = [batch_info,file_list,i,block_size,fch1+foff*(i*block_size),math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan,math.nan]
 
     if sectioning == "False":
+        raise NotImplementedError(
+            'This bit of the code references something that was never defined? '
+            'Don\'t let sectioning = \'True\''
+        )
         if len(filtered_hotspots) == 0:
             print('empty observation')
             k_score_table.loc[len(k_score_table.index)] = [batch_info,h5_files,0,block_size,0,[],[],[],[],np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan,np.nan]
